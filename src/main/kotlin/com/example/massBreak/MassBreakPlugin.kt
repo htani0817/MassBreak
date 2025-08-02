@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.format.TextDecoration
 import org.bukkit.*
+import org.bukkit.block.data.Ageable
 import org.bukkit.command.CommandSender
 import org.bukkit.command.ConsoleCommandSender
 import org.bukkit.configuration.file.YamlConfiguration
@@ -30,7 +31,10 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     private lateinit var autoKey: NamespacedKey
     private val whitelistMap: MutableMap<String, MutableSet<Material>> = mutableMapOf()
 
-    /** 26 方向隣接オフセット */
+    /** Sneak 中の ActionBar 送信タスク */
+    private val msgTasks = mutableMapOf<UUID, Int>()
+
+    /** 26 方向隣接 */
     private val neighbor26 = buildList {
         for (dx in -1..1) for (dy in -1..1) for (dz in -1..1)
             if (dx != 0 || dy != 0 || dz != 0) add(intArrayOf(dx, dy, dz))
@@ -41,13 +45,13 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         AXE(Tag.MINEABLE_AXE),
         SHOVEL(Tag.MINEABLE_SHOVEL),
         HOE(Tag.MINEABLE_HOE),
-        SHEARS(Tag.WOOL)
+        SHEARS(Tag.WOOL)               // Paper 1.21 には MINEABLE_SHEARS が無い
     }
 
     // ───────────────────────── onEnable
     override fun onEnable() {
         enabledKey = NamespacedKey(this, "mb_enabled")
-        autoKey   = NamespacedKey(this, "mb_auto")
+        autoKey    = NamespacedKey(this, "mb_auto")
 
         server.pluginManager.registerEvents(this, this)
 
@@ -60,13 +64,12 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         getCommand("mbreload")?.setExecutor { sender, _, _, _ ->
             if (canReload(sender)) {
                 reloadLists(); sender.sendMessage("§aMassBreak の設定をリロードしました")
-            }
-            true
+            }; true
         }
 
         ToolType.values().forEach { whitelistMap[it.name] = it.tag.values.toMutableSet() }
         reloadLists()
-        logger.info("MassBreak v12 起動完了")
+        logger.info("MassBreak v13 起動完了")
     }
 
     // ───────────────────────── BlockBreak
@@ -75,35 +78,53 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         val p = e.player
         if (!p.flag(enabledKey) || !p.isSneaking) return
 
-        val hand   = p.inventory.itemInMainHand
-        val toolKey = hand.type.name.substringAfterLast("_")   // PICKAXE など
-        val list   = whitelistMap[toolKey] ?: return
-        val target = e.block.type
+        val hand    = p.inventory.itemInMainHand
+        val toolKey = hand.type.name.substringAfterLast("_")      // PICKAXE など
+        val list    = whitelistMap[toolKey] ?: return
+        val target  = e.block.type
         if (target !in list) return
 
         e.isDropItems = false
 
         when (toolKey) {
-            "AXE"     -> fellTree(e.block.location, p)
+            "AXE" -> fellTree(e.block.location, p)
+
             "PICKAXE" -> if (target.name.endsWith("_ORE") || target == Material.ANCIENT_DEBRIS)
                 veinMine(e.block.location, target, p)
             else cubeSame(e.block.location, p, target)
-            else      -> cubeGeneric(e.block.location, p, list)
-        }
 
-        // 太字 ActionBar
-        p.sendActionBar(
-            Component.text("注意：一括破壊オン", NamedTextColor.RED, TextDecoration.BOLD)
-        )
+            else -> cubeGeneric(e.block.location, p, list)  // HOE, SHOVEL, SHEARS
+        }
     }
 
-    // スニーク開始時の警告
+    // ───────────────────────── Sneak ActionBar (常時表示＆即消去)
     @EventHandler
     fun onSneak(e: PlayerToggleSneakEvent) {
-        if (e.isSneaking && e.player.flag(enabledKey)) {
-            e.player.sendActionBar(
-                Component.text("注意：一括破壊オン", NamedTextColor.RED, TextDecoration.BOLD)
-            )
+        val p   = e.player
+        val id  = p.uniqueId
+
+        if (e.isSneaking && p.flag(enabledKey)) {
+            // すでにループ中なら何もしない
+            if (msgTasks.containsKey(id)) return
+
+            // 0.5 秒ごとに ActionBar を再送
+            val taskId = server.scheduler.scheduleSyncRepeatingTask(this, {
+                if (!p.isSneaking || !p.flag(enabledKey)) {
+                    // Sneak 解除 → タスク停止 & ActionBar 空送信で即消去
+                    p.sendActionBar(Component.empty())
+                    server.scheduler.cancelTask(msgTasks.remove(id) ?: return@scheduleSyncRepeatingTask)
+                    return@scheduleSyncRepeatingTask
+                }
+                p.sendActionBar(
+                    Component.text("注意：一括破壊オン", NamedTextColor.RED, TextDecoration.BOLD)
+                )
+            }, 0L, 10L)  // 10tick = 0.5s
+
+            msgTasks[id] = taskId
+        } else {
+            // Sneak OFF：タスクがあれば停止し、ActionBar を即クリア
+            msgTasks.remove(id)?.let { server.scheduler.cancelTask(it) }
+            p.sendActionBar(Component.empty())
         }
     }
 
@@ -129,16 +150,40 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         }
     }
 
+    /** 通常 3×3×3 or 完熟同種作物のベイン収穫 */
     private fun cubeGeneric(o: Location, p: org.bukkit.entity.Player, list: Set<Material>) {
         val hand = p.inventory.itemInMainHand
+        val center = o.block
+        // 完熟作物なら同種だけ 26 方向探索
+        if (center.blockData is Ageable && isBreakable(center)) {
+            harvestCropVein(o, center.type, p); return
+        }
+        // それ以外は従来の 3×3×3
         for (dy in -1..1) for (dx in -1..1) for (dz in -1..1) {
             val b = o.clone().add(dx.toDouble(), dy.toDouble(), dz.toDouble()).block
-            if (b.type in list) dropAndClear(b, hand, p)
+            if (b.type in list && isBreakable(b)) dropAndClear(b, hand, p)
         }
     }
 
     private fun veinMine(start: Location, ore: Material, p: org.bukkit.entity.Player) =
         bfs(start, p, MAX_VEIN) { it == ore }
+
+    /** 完熟作物の同種ベイン収穫 (26 方向) */
+    private fun harvestCropVein(start: Location, crop: Material, p: org.bukkit.entity.Player) {
+        val hand = p.inventory.itemInMainHand
+        val vis = HashSet<Location>()
+        val q: ArrayDeque<Location> = ArrayDeque(listOf(start))
+        while (q.isNotEmpty()) {
+            val loc = q.removeFirst()
+            if (!vis.add(loc)) continue
+            val b = loc.block
+            if (b.type != crop || !isBreakable(b)) continue
+            dropAndClear(b, hand, p)
+            neighbor26.forEach { off ->
+                q.add(loc.clone().add(off[0].toDouble(), off[1].toDouble(), off[2].toDouble()))
+            }
+        }
+    }
 
     /** 汎用 BFS */
     private fun bfs(start: Location, p: org.bukkit.entity.Player, limit: Int, match: (Material) -> Boolean) {
@@ -149,7 +194,7 @@ class MassBreakPlugin : JavaPlugin(), Listener {
             val loc = queue.removeFirst()
             if (!visited.add(loc)) continue
             val b = loc.block
-            if (!match(b.type)) continue
+            if (!match(b.type) || !isBreakable(b)) continue
             dropAndClear(b, hand, p)
             neighbor26.forEach { off ->
                 queue.add(loc.clone().add(off[0].toDouble(), off[1].toDouble(), off[2].toDouble()))
@@ -176,6 +221,13 @@ class MassBreakPlugin : JavaPlugin(), Listener {
 
     private fun reloadLists() {
         ToolType.values().forEach { whitelistMap[it.name] = it.tag.values.toMutableSet() }
+        // 追加―葉とツツジ葉を shears, hoe に加える
+        whitelistMap["SHEARS"]!!.apply {
+            addAll(Tag.LEAVES.values)
+            add(Material.AZALEA_LEAVES); add(Material.FLOWERING_AZALEA_LEAVES)
+        }
+        whitelistMap["HOE"]!!.addAll(Tag.LEAVES.values)
+
         dataFolder.mkdirs()
         ToolType.values().forEach { t ->
             val file = File(dataFolder, "${t.name.lowercase()}.yml")
@@ -196,4 +248,10 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     }
     private fun org.bukkit.entity.Player.flag(key: NamespacedKey) =
         persistentDataContainer.has(key, PersistentDataType.BYTE)
+
+    /** 完熟判定 */
+    private fun isBreakable(b: org.bukkit.block.Block): Boolean {
+        val data = b.blockData
+        return if (data is Ageable) data.age == data.maximumAge else true
+    }
 }
