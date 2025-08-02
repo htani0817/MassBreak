@@ -1,0 +1,16 @@
+name: MassBreak
+version: ${version}
+main: com.example.massbreak.MassBreakPlugin
+api-version: '1.21'
+
+commands:
+  mbtoggle:
+    description: 一括破壊モードの切り替え
+  mbauto:
+    description: 自動回収モードの切り替え
+  mbreload:
+    description: MassBreak の設定ファイルをリロード
+permissions:
+  massbreak.reload:
+    description: MassBreak の設定リロードを許可
+    default: op
