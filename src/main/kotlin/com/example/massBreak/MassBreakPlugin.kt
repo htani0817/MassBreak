@@ -23,6 +23,7 @@ import org.bukkit.inventory.meta.Damageable
 import org.bukkit.entity.Player
 import org.bukkit.Sound
 import kotlin.random.Random
+import org.bukkit.entity.ExperienceOrb
 
 class MassBreakPlugin : JavaPlugin(), Listener {
 
@@ -210,9 +211,10 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     /** ブロックを破壊してドロップ処理 & ツール耐久値を減少 */
     private fun dropAndClear(b: org.bukkit.block.Block, hand: ItemStack, p: Player) {
         val drops = b.getDrops(hand, p)
+        val mat   = b.type
         b.type = Material.AIR
 
-        // ── 自動回収 or 自然ドロップ ──
+        // ─── 自動回収 ─────────────────────────
         if (p.flag(autoKey)) {
             val leftover = p.inventory.addItem(*drops.toTypedArray())
             leftover.values.forEach { b.world.dropItemNaturally(b.location, it) }
@@ -220,7 +222,25 @@ class MassBreakPlugin : JavaPlugin(), Listener {
             drops.forEach { b.world.dropItemNaturally(b.location, it) }
         }
 
-        // ── ツール耐久値を 1 減らす（Unbreaking 考慮）──
+        // ─── 経験値オーブ ─────────────────────
+        val xp = when (mat) {
+            Material.COAL_ORE, Material.DEEPSLATE_COAL_ORE      -> 1
+            Material.LAPIS_ORE, Material.DEEPSLATE_LAPIS_ORE    -> (2..5).random()
+            Material.REDSTONE_ORE, Material.DEEPSLATE_REDSTONE_ORE -> (1..5).random()
+            Material.NETHER_QUARTZ_ORE                           -> (2..5).random()
+            Material.DIAMOND_ORE, Material.DEEPSLATE_DIAMOND_ORE,
+            Material.EMERALD_ORE, Material.DEEPSLATE_EMERALD_ORE -> (3..7).random()
+            Material.COPPER_ORE, Material.DEEPSLATE_COPPER_ORE,
+            Material.IRON_ORE,   Material.DEEPSLATE_IRON_ORE,
+            Material.GOLD_ORE,   Material.DEEPSLATE_GOLD_ORE     -> 0  // 精錬系は XP 無し
+            else -> 0
+        }
+        if (xp > 0) {
+            val orb = b.world.spawn(b.location, ExperienceOrb::class.java)
+            orb.experience = xp
+        }
+
+        // ─── ツール耐久 (Unbreaking 対応) ────────
         damageTool(p, 1)
     }
 

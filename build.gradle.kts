@@ -6,7 +6,7 @@ plugins {
 
 group = "com.example"
 //version = "1.3-SNAPSHOT"
-version = "1.2-Release"
+version = "1.3-Release"
 
 repositories {
     mavenCentral()
