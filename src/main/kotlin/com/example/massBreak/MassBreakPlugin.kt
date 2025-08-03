@@ -202,11 +202,22 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         }
     }
 
+    /** ブロックを破壊してドロップ処理 */
     private fun dropAndClear(b: org.bukkit.block.Block, hand: ItemStack, p: org.bukkit.entity.Player) {
-        val drops = b.getDrops(hand, p)
-        b.type = Material.AIR
-        if (p.flag(autoKey)) p.inventory.addItem(*drops.toTypedArray())
-        else drops.forEach { b.world.dropItemNaturally(b.location, it) }
+        val drops = b.getDrops(hand, p)        // 破壊ドロップを取得
+        b.type = Material.AIR                 // ブロックを空気に
+
+        if (p.flag(autoKey)) {
+            // インベントリへ追加。入らなかった分だけ戻ってくる
+            val leftover = p.inventory.addItem(*drops.toTypedArray())
+            if (leftover.isNotEmpty()) {
+                // 残りは足元に自然ドロップ
+                leftover.values.forEach { b.world.dropItemNaturally(b.location, it) }
+            }
+        } else {
+            // 自動回収 OFF：すべて自然ドロップ
+            drops.forEach { b.world.dropItemNaturally(b.location, it) }
+        }
     }
 
     // ───────────────────────── リロード & 権限
