@@ -18,6 +18,11 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
 import java.util.*
+import org.bukkit.enchantments.Enchantment
+import org.bukkit.inventory.meta.Damageable
+import org.bukkit.entity.Player
+import org.bukkit.Sound
+import kotlin.random.Random
 
 class MassBreakPlugin : JavaPlugin(), Listener {
 
@@ -202,21 +207,47 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         }
     }
 
-    /** ブロックを破壊してドロップ処理 */
-    private fun dropAndClear(b: org.bukkit.block.Block, hand: ItemStack, p: org.bukkit.entity.Player) {
-        val drops = b.getDrops(hand, p)        // 破壊ドロップを取得
-        b.type = Material.AIR                 // ブロックを空気に
+    /** ブロックを破壊してドロップ処理 & ツール耐久値を減少 */
+    private fun dropAndClear(b: org.bukkit.block.Block, hand: ItemStack, p: Player) {
+        val drops = b.getDrops(hand, p)
+        b.type = Material.AIR
 
+        // ── 自動回収 or 自然ドロップ ──
         if (p.flag(autoKey)) {
-            // インベントリへ追加。入らなかった分だけ戻ってくる
             val leftover = p.inventory.addItem(*drops.toTypedArray())
-            if (leftover.isNotEmpty()) {
-                // 残りは足元に自然ドロップ
-                leftover.values.forEach { b.world.dropItemNaturally(b.location, it) }
-            }
+            leftover.values.forEach { b.world.dropItemNaturally(b.location, it) }
         } else {
-            // 自動回収 OFF：すべて自然ドロップ
             drops.forEach { b.world.dropItemNaturally(b.location, it) }
+        }
+
+        // ── ツール耐久値を 1 減らす（Unbreaking 考慮）──
+        damageTool(p, 1)
+    }
+
+    /** Unbreaking を考慮してツール耐久を減少させる */
+    private fun damageTool(player: Player, amount: Int) {
+        val item = player.inventory.itemInMainHand ?: return
+        if (item.type.maxDurability <= 0) return               // 耐久値が無いアイテム
+
+        val unbreaking = item.getEnchantmentLevel(Enchantment.UNBREAKING)
+        var actualDamage = 0
+        repeat(amount) {
+            // Unbreaking: 1/(level+1) の確率で耐久を消費
+            if (unbreaking == 0 || Random.nextInt(unbreaking + 1) == 0) actualDamage++
+        }
+        if (actualDamage == 0) return                          // 全部無効化された
+
+        val meta = item.itemMeta
+        if (meta is Damageable) {
+            val newDamage = meta.damage + actualDamage
+            if (newDamage >= item.type.maxDurability) {
+                // ツールが壊れる
+                player.inventory.setItemInMainHand(null)
+                player.playSound(player.location, Sound.ENTITY_ITEM_BREAK, 1f, 1f)
+            } else {
+                meta.damage = newDamage
+                item.itemMeta = meta
+            }
         }
     }
 
