@@ -145,8 +145,10 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     }
 
     // ───────────────────────── 破壊ロジック
-    private fun fellTree(start: Location, p: org.bukkit.entity.Player) =
-        bfs(start, p, MAX_TREE) { it in whitelistMap["AXE"]!! }
+    private fun fellTree(start: Location, p: Player) {
+        val wood = start.block.type                    // 壊し始めた原木
+        bfs(start, p, MAX_TREE) { it == wood }         // 同じ木だけ破壊
+    }
 
     private fun cubeSame(o: Location, p: org.bukkit.entity.Player, mat: Material) {
         val hand = p.inventory.itemInMainHand
@@ -156,18 +158,18 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         }
     }
 
-    /** 通常 3×3×3 or 完熟同種作物のベイン収穫 */
-    private fun cubeGeneric(o: Location, p: org.bukkit.entity.Player, list: Set<Material>) {
-        val hand = p.inventory.itemInMainHand
+    /** 3×3×3 破壊 or 完熟作物ベイン */
+    private fun cubeGeneric(o: Location, p: Player, list: Set<Material>) {
+        val hand   = p.inventory.itemInMainHand
         val center = o.block
-        // 完熟作物なら同種だけ 26 方向探索
+        // 完熟作物ならベイン収穫
         if (center.blockData is Ageable && isBreakable(center)) {
             harvestCropVein(o, center.type, p); return
         }
-        // それ以外は従来の 3×3×3
+        // 同種ブロックのみ 3×3×3
         for (dy in -1..1) for (dx in -1..1) for (dz in -1..1) {
             val b = o.clone().add(dx.toDouble(), dy.toDouble(), dz.toDouble()).block
-            if (b.type in list && isBreakable(b)) dropAndClear(b, hand, p)
+            if (b.type == center.type && isBreakable(b)) dropAndClear(b, hand, p)
         }
     }
 
