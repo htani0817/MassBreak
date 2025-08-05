@@ -6,19 +6,33 @@ plugins {
 
 group = "com.example"
 //version = "1.3-SNAPSHOT"
-version = "1.5-Release"
+version = "1.6-Release"
 
 repositories {
     mavenCentral()
-    maven("https://repo.papermc.io/repository/maven-public/") {
-        name = "papermc-repo"
-    }
+    maven("https://repo.papermc.io/repository/maven-public/") { name = "papermc-repo" }
 }
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
+    implementation("com.jeff-media:custom-block-data:2.2.5")
 }
+
+// Shadow の設定はトップレベルじゃなく「tasks.shadowJar」で！
+tasks.shadowJar {
+    // 依存ライブラリを衝突回避のためにリロケート
+    relocate("com.jeff_media.customblockdata", "com.example.massbreak.libs.customblockdata")
+
+    // 出力ファイル名から「-all」などの classifier を外す（通常のプラグイン名に）
+    archiveClassifier.set("")
+
+    // 必要なら最小化（問題が出る環境もあるので最初はOFF推奨）
+    // minimize()
+}
+
+// build 時にも shadowJar を作らせる
+tasks.build { dependsOn(tasks.shadowJar) }
 
 tasks {
     runServer {
