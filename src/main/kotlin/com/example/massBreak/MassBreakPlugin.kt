@@ -24,6 +24,8 @@ import org.bukkit.entity.Player
 import org.bukkit.Sound
 import kotlin.random.Random
 import org.bukkit.entity.ExperienceOrb
+import org.bukkit.event.player.PlayerQuitEvent
+import org.bukkit.event.player.PlayerJoinEvent
 
 class MassBreakPlugin : JavaPlugin(), Listener {
 
@@ -318,4 +320,29 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         val data = b.blockData
         return if (data is Ageable) data.age == data.maximumAge else true
     }
+
+    @EventHandler
+    fun onQuit(e: PlayerQuitEvent) {
+        val p = e.player
+        for (slot in 0..8) {
+            if (p.inventory.getItem(slot)?.isSimilar(waypointItem) == true) {
+                saveLastSlot(p.uniqueId, slot)
+                break
+            }
+        }
+    }
+
+    @EventHandler
+    fun onJoin(e: PlayerJoinEvent) {
+        val p = e.player
+        val inv = p.inventory
+        val slot = loadLastSlot(p.uniqueId) ?: 8
+        inv.setItem(slot, waypointItem)
+    }
+
+    private val lastSlotMap = mutableMapOf<UUID, Int>()
+    fun saveLastSlot(uuid: UUID, slot: Int) { lastSlotMap[uuid] = slot }
+    fun loadLastSlot(uuid: UUID): Int? = lastSlotMap[uuid]
+    val waypointItem: ItemStack = ItemStack(Material.COMPASS) // 任意に設定
+
 }
