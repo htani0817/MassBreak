@@ -26,6 +26,7 @@ import kotlin.random.Random
 import org.bukkit.entity.ExperienceOrb
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerJoinEvent
+import org.bukkit.event.inventory.InventoryClickEvent
 
 class MassBreakPlugin : JavaPlugin(), Listener {
 
@@ -322,22 +323,25 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     }
 
     @EventHandler
-    fun onQuit(e: PlayerQuitEvent) {
+    fun onJoin(e: PlayerJoinEvent) {
         val p = e.player
-        for (slot in 0..8) {
-            if (p.inventory.getItem(slot)?.isSimilar(waypointItem) == true) {
-                saveLastSlot(p.uniqueId, slot)
-                break
-            }
-        }
+        p.inventory.setItem(8, waypointItem)  // 常に右端スロットに配置
     }
 
     @EventHandler
-    fun onJoin(e: PlayerJoinEvent) {
+    fun onQuit(e: PlayerQuitEvent) {
         val p = e.player
-        val inv = p.inventory
-        val slot = loadLastSlot(p.uniqueId) ?: 8
-        inv.setItem(slot, waypointItem)
+        // 保存処理（必要であれば）または省略
+        // addItem は使わない
+    }
+
+    @EventHandler
+    fun onInventoryClick(e: InventoryClickEvent) {
+        val player = e.whoClicked as? Player ?: return
+        val clicked = e.currentItem ?: return
+        if (clicked.isSimilar(waypointItem) && e.slot != 8) {
+            e.isCancelled = true
+        }
     }
 
     private val lastSlotMap = mutableMapOf<UUID, Int>()
