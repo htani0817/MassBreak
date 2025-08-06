@@ -52,7 +52,7 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     private val whitelistMap: MutableMap<String, MutableSet<Material>> = mutableMapOf()
     private val msgTasks = mutableMapOf<UUID, Int>()
 
-    private val neighbor26 = buildList {
+    private val neighbor26: List<IntArray> = buildList {
         for (dx in -1..1) for (dy in -1..1) for (dz in -1..1)
             if (dx != 0 || dy != 0 || dz != 0) add(intArrayOf(dx, dy, dz))
     }
@@ -113,7 +113,7 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     fun onBreak(e: BlockBreakEvent) {
         val p = e.player
         if (!p.flag(enabledKey) || !p.isSneaking) return
-        if (isPlayerPlaced(e.block)) return
+        if (isProtectedPlaced(e.block)) return
         // ★ 起点が収納ブロックなら一括破壊を発動しない
         if (isStorageBlock(e.block)) return
 
@@ -174,11 +174,13 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     /** 同種3×3×3（砂/砂利の欠け対策：スナップショット→破壊） */
     private fun cubeSame(o: Location, p: Player, mat: Material) {
         val hand = p.inventory.itemInMainHand
-        val targets = buildList {
+        val targets = buildList<org.bukkit.block.Block> {
             for (dy in -1..1) for (dx in -1..1) for (dz in -1..1) {
                 val b = o.clone().add(dx.toDouble(), dy.toDouble(), dz.toDouble()).block
-                // ★ 収納ブロックは除外
-                if (b.type == mat && isBreakable(b) && !isPlayerPlaced(b) && !isStorageBlock(b)) add(b)
+                // 収納は除外、プレイヤー設置でも鉱石はOK（＝isProtectedPlacedで弾かない）
+                if (b.type == mat && isBreakable(b) && !isProtectedPlaced(b) && !isStorageBlock(b)) {
+                    add(b)
+                }
             }
         }
         targets.forEach { dropAndClear(it, hand, p) }
@@ -188,17 +190,21 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     private fun cubeGeneric(o: Location, p: Player, list: Set<Material>) {
         val hand   = p.inventory.itemInMainHand
         val center = o.block
-        if (isPlayerPlaced(center)) return
+        if (isProtectedPlaced(center)) return
 
+        // 完熟作物はベイン収穫（プレイヤー設置作物は保護対象なので isProtectedPlaced で弾く）
         if (center.blockData is Ageable && isBreakable(center)) {
-            harvestCropVein(o, center.type, p); return
+            harvestCropVein(o, center.type, p)
+            return
         }
+
         val mat = center.type
-        val targets = buildList {
+        val targets = buildList<org.bukkit.block.Block> {
             for (dy in -1..1) for (dx in -1..1) for (dz in -1..1) {
                 val b = o.clone().add(dx.toDouble(), dy.toDouble(), dz.toDouble()).block
-                // ★ 収納ブロックは除外
-                if (b.type == mat && isBreakable(b) && !isPlayerPlaced(b) && !isStorageBlock(b)) add(b)
+                if (b.type == mat && isBreakable(b) && !isProtectedPlaced(b) && !isStorageBlock(b)) {
+                    add(b)
+                }
             }
         }
         targets.forEach { dropAndClear(it, hand, p) }
@@ -210,12 +216,12 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     private fun harvestCropVein(start: Location, crop: Material, p: Player) {
         val hand = p.inventory.itemInMainHand
         val vis = HashSet<Location>()
-        val q: ArrayDeque<Location> = ArrayDeque(listOf(start))
+        val q: ArrayDeque<Location> = ArrayDeque<Location>().apply { add(start) }
         while (q.isNotEmpty()) {
             val loc = q.removeFirst()
             if (!vis.add(loc)) continue
             val b = loc.block
-            if (b.type != crop || !isBreakable(b) || isPlayerPlaced(b)) continue
+            if (b.type != crop || !isBreakable(b) || isProtectedPlaced(b)) continue
             dropAndClear(b, hand, p)
             neighbor26.forEach { off ->
                 q.add(loc.clone().add(off[0].toDouble(), off[1].toDouble(), off[2].toDouble()))
@@ -227,13 +233,13 @@ class MassBreakPlugin : JavaPlugin(), Listener {
     private fun bfs(start: Location, p: Player, limit: Int, match: (Material) -> Boolean) {
         val hand = p.inventory.itemInMainHand
         val visited = HashSet<Location>()
-        val queue: ArrayDeque<Location> = ArrayDeque(listOf(start))
+        val queue: ArrayDeque<Location> = ArrayDeque<Location>().apply { add(start) }
         while (queue.isNotEmpty() && visited.size < limit) {
             val loc = queue.removeFirst()
             if (!visited.add(loc)) continue
             val b = loc.block
             // ★ 収納ブロック除外
-            if (!match(b.type) || !isBreakable(b) || isPlayerPlaced(b) || isStorageBlock(b)) continue
+            if (!match(b.type) || !isBreakable(b) || isProtectedPlaced(b) || isStorageBlock(b)) continue
             dropAndClear(b, hand, p)
             neighbor26.forEach { off ->
                 queue.add(loc.clone().add(off[0].toDouble(), off[1].toDouble(), off[2].toDouble()))
@@ -436,4 +442,11 @@ class MassBreakPlugin : JavaPlugin(), Listener {
         val n = mat.name
         return n.endsWith("_PICKAXE") || n.endsWith("_AXE") || n.endsWith("_SHOVEL") || n.endsWith("_HOE")
     }
+
+    /** プレイヤー設置かつ「保護すべき」ブロックか？
+     *  ＝ プレイヤー設置 && （鉱石ではない） */
+    private fun isProtectedPlaced(block: org.bukkit.block.Block): Boolean {
+        return isPlayerPlaced(block) && !isOreBlock(block.type)
+    }
+
 }
