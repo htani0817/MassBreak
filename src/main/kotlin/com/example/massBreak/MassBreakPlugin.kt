@@ -285,7 +285,7 @@ class MassBreakPlugin : JavaPlugin(), Listener {
             drops.forEach { b.world.dropItemNaturally(b.location, it) }
         }
 
-        // 経験値（容器ブロックは通常XP無し）
+        // ─── 経験値オーブ／自動回収時はプレイヤーに直接付与（Mending有効） ───
         val xp = when (mat) {
             Material.COAL_ORE, Material.DEEPSLATE_COAL_ORE      -> 1
             Material.LAPIS_ORE, Material.DEEPSLATE_LAPIS_ORE    -> (2..5).random()
@@ -296,8 +296,14 @@ class MassBreakPlugin : JavaPlugin(), Listener {
             else -> 0
         }
         if (xp > 0) {
-            val orb = b.world.spawn(b.location, ExperienceOrb::class.java)
-            orb.experience = xp
+            if (p.flag(autoKey)) {
+                // Paper API: Mending を適用して直接付与（オーブ生成しない＝軽量）
+                p.giveExp(xp, /* applyMending = */ true)  // Paper 1.21+
+            } else {
+                // 従来どおり現地にオーブをスポーン
+                val orb = b.world.spawn(b.location, ExperienceOrb::class.java)
+                orb.experience = xp
+            }
         }
 
         // ツール耐久（Unbreaking + “ほんの気持ち”軽減）
