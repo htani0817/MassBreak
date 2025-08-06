@@ -1,9 +1,12 @@
 name: MassBreak
-version: 1.6-Release
+version: 1.7-Release
 main: com.example.massbreak.MassBreakPlugin
 api-version: '1.21'
 
 commands:
+  mb:
+    description: MassBreak セットアップメニュー
+    usage: "/mb setup"
   mbtoggle:
     description: 一括破壊モードの切り替え
   mbauto:
